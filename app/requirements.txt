@@ -1,5 +1,5 @@
 streamlit==1.30.0
-tensorflow==2.15.0.post1
+tensorflow==2.15.0
 numpy==1.26.3
 Pillow
 pandas
