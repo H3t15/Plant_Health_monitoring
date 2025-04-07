@@ -1,0 +1,80 @@
+#include <ESP8266WiFi.h>
+#include <DHT.h>
+#include <ArduinoJson.h>
+#include <ESP8266HTTPClient.h>
+
+// Replace with your WiFi credentials
+const char* ssid = "YOUR_SSID";
+const char* password = "YOUR_PASSWORD";
+
+// Supabase REST API details
+const char* supabase_url = "https://YOUR_PROJECT_ID.supabase.co/rest/v1/sensor_data";
+const char* supabase_api_key = "YOUR_SUPABASE_API_KEY";
+
+// DHT setup
+#define DHTPIN D4       // GPIO2
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
+
+// Soil Moisture
+#define SOIL_PIN A0
+
+// Pump
+#define PUMP_PIN D3     // GPIO0
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+  pinMode(PUMP_PIN, OUTPUT);
+  digitalWrite(PUMP_PIN, LOW); // Pump off by default
+
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi...");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Connected!");
+}
+
+void loop() {
+  float temperature = dht.readTemperature();
+  float humidity = dht.readHumidity();
+  int soil_moisture = analogRead(SOIL_PIN);
+
+  if (isnan(temperature) || isnan(humidity)) {
+    Serial.println("Failed to read from DHT sensor!");
+    return;
+  }
+
+  // Control pump if soil moisture is low (tweak threshold)
+  if (soil_moisture < 600) {
+    digitalWrite(PUMP_PIN, HIGH);
+    delay(3000); // run for 3 seconds
+    digitalWrite(PUMP_PIN, LOW);
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+
+    http.begin(supabase_url);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("apikey", supabase_api_key);
+    http.addHeader("Authorization", String("Bearer ") + supabase_api_key);
+
+    StaticJsonDocument<200> json;
+    json["temperature"] = temperature;
+    json["humidity"] = humidity;
+    json["soil_moisture"] = soil_moisture;
+
+    String requestBody;
+    serializeJson(json, requestBody);
+
+    int httpResponseCode = http.POST(requestBody);
+    Serial.print("HTTP Response Code: ");
+    Serial.println(httpResponseCode);
+    http.end();
+  }
+
+  delay(10000); // send data every 10 seconds
+}
