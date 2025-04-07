@@ -5,7 +5,9 @@ import numpy as np
 import tensorflow as tf
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 from supabase import create_client
 
 # ---------------------
@@ -167,32 +169,76 @@ elif nav_selection == "Plant Disease Classifier" and st.session_state['authentic
 # ---------------------
 # Sensor Dashboard
 # ---------------------
-elif nav_selection == "Sensor Dashboard" and st.session_state['authenticated']:
+
+import streamlit as st
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+sns.set(style="whitegrid")
+
+if nav_selection == "Sensor Dashboard" and st.session_state.get('authenticated', False):
     st.title("📊 Sensor Data Dashboard")
-    supabaseList = supabase.table('SensorData').select('*').execute().data
-    df = pd.DataFrame(supabaseList)
 
-    if not df.empty:
-        df["DateTime"] = pd.to_datetime(df["created_at"])
-        df.rename(columns={
-            "Temprature": "AirTemperature",
-            "Humidity": "Humidity",
-            "SoilTemperature": "SoilTemperature",
-            "SoilMoisture": "SoilMoisture"
-        }, inplace=True)
+    # Step 1: Fetch data from Supabase
+    supabase_data = supabase.table('SensorData').select('*').execute().data
+    df = pd.DataFrame(supabase_data)
 
-        df = df.astype({"AirTemperature": float, "Humidity": float, "SoilTemperature": float, "SoilMoisture": float})
+    if df.empty:
+        st.warning("⚠️ No sensor data available.")
+        st.stop()
 
-        st.markdown("### 🌬️ Air Temperature (DHT22)")
-        st.plotly_chart(px.line(df, x="DateTime", y="AirTemperature", markers=True), use_container_width=True)
+    # Step 2: Show raw data
+    st.write("📦 Raw Data Preview:", df.head())
+    st.write("🔍 Original Columns from Supabase:", df.columns.tolist())
 
-        st.markdown("### 🌡️ Soil Temperature (OneWire)")
-        st.plotly_chart(px.line(df, x="DateTime", y="SoilTemperature", markers=True), use_container_width=True)
+    # Step 3: Fix typos and standardize column names
+    df.rename(columns={
+        "Temprature": "air_temperature",   # Correct typo
+        "Temperature": "air_temperature",  # In case database fixes it
+        "STemprature": "soil_temperature"  # Correct typo
+    }, inplace=True)
 
-        st.markdown("### 💧 Humidity (DHT22)")
-        st.plotly_chart(px.line(df, x="DateTime", y="Humidity", markers=True), use_container_width=True)
+    # Step 4: Normalize all column names
+    df.columns = df.columns.str.strip().str.lower()
+    st.write("✅ Final Normalized Columns:", df.columns.tolist())
 
-        st.markdown("### 🌱 Soil Moisture")
-        st.plotly_chart(px.line(df, x="DateTime", y="SoilMoisture", markers=True), use_container_width=True)
+    # Step 5: Convert created_at to datetime
+    if "created_at" in df.columns:
+        df["datetime"] = pd.to_datetime(df["created_at"])
     else:
-        st.warning("⚠️ No sensor data found.")
+        st.error("❌ 'created_at' column is missing!")
+        st.stop()
+
+    # Step 6: Define sensor columns for plotting
+    sensor_columns = {
+        "air_temperature": "🌬️ Air Temperature (DHT22)",
+        "soil_temperature": "🌡️ Soil Temperature (OneWire)",
+        "humidity": "💧 Humidity (DHT22)",
+        "soilmoisture": "🌱 Soil Moisture (%)"
+    }
+
+    # Step 7: Plot each sensor data
+    for col, label in sensor_columns.items():
+        if col in df.columns:
+            # Convert to numeric if needed
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+            plot_df = df.dropna(subset=["datetime", col]).sort_values("datetime")
+
+            # Debugging: show values
+            st.write(f"🔎 `{col}` raw values:", df[col].tolist())
+            st.write(f"✅ `{col}` filtered data:", plot_df[[col]].head())
+
+            if not plot_df.empty:
+                st.markdown(f"### {label}")
+                fig, ax = plt.subplots()
+                sns.lineplot(data=plot_df, x="datetime", y=col, ax=ax, marker='o', color='tab:blue')
+                ax.set_xlabel("Timestamp")
+                ax.set_ylabel(label)
+                ax.set_title(label)
+                fig.autofmt_xdate()
+                st.pyplot(fig)
+            else:
+                st.warning(f"⚠️ No valid data to plot for `{col}`.")
+        else:
+            st.warning(f"❗ Column `{col}` not found in the data.")
